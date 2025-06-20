@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview Summarizes the content of a webpage given its URL.
@@ -47,7 +48,13 @@ const summarizePageContentFlow = ai.defineFlow(
     outputSchema: SummarizePageContentOutputSchema,
   },
   async input => {
-    const {output} = await summarizePageContentPrompt(input);
-    return output!;
+    const result = await summarizePageContentPrompt(input);
+    const output = result.output;
+
+    if (!output) {
+      console.error('Genkit prompt "summarizePageContentPrompt" did not return an output. Input:', input, 'Result:', result);
+      return { summary: "I couldn't summarize the page content. The AI service didn't provide a valid response." };
+    }
+    return output;
   }
 );

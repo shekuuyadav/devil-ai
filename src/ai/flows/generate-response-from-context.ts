@@ -61,7 +61,13 @@ const generateResponseFromContextFlow = ai.defineFlow(
   },
   async input => {
     const lang = input.language || 'en'; // Default to English if language is not provided
-    const {output} = await generateResponseFromContextPrompt({...input, language: lang});
-    return output!;
+    const result = await generateResponseFromContextPrompt({...input, language: lang});
+    const output = result.output;
+
+    if (!output) {
+      console.error('Genkit prompt "generateResponseFromContextPrompt" did not return an output. Input:', input, 'Result:', result);
+      return { response: "I'm having trouble thinking like a devil right now. The AI service didn't provide a valid response." };
+    }
+    return output;
   }
 );

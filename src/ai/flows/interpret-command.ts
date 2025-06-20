@@ -1,4 +1,3 @@
-
 // src/ai/flows/interpret-command.ts
 'use server';
 /**
@@ -62,8 +61,17 @@ const interpretCommandFlow = ai.defineFlow(
     outputSchema: InterpretCommandOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    const result = await prompt(input);
+    const output = result.output;
+
+    if (!output) {
+      console.error('Genkit prompt "interpretCommandPrompt" did not return an output. Input:', input, 'Result:', result);
+      return {
+        action: "unknown",
+        parameters: { error: "AI service failed to interpret command. Output was empty." },
+        confidence: 0
+      };
+    }
+    return output;
   }
 );
-
