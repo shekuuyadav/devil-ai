@@ -1,4 +1,3 @@
-
 /**
  * @fileOverview A NoOp Genkit plugin for graceful degradation when API keys are missing.
  * This plugin provides placeholder implementations for Genkit flows and prompts,
@@ -10,41 +9,63 @@ import type { ZodObject, z } from 'zod';
 // Helper to create a default response based on a Zod schema
 function createDefaultResponse(outputSchema?: ZodSchema<any>): any {
   const errorMessage = "AI functionality is currently disabled. Please configure the API key in your .env file.";
-  if (outputSchema) {
-    try {
-      // @ts-ignore - Accessing internal Zod properties
-      if (outputSchema._def?.typeName === "ZodObject") {
-        const shape = (outputSchema as ZodObject<any>).shape;
-        const defaultObject: Record<string, any> = {};
-        for (const key in shape) {
-          // @ts-ignore
-          const fieldSchema = shape[key];
-          // @ts-ignore
-          const fieldTypeName = fieldSchema._def?.typeName;
-          if (fieldTypeName === "ZodString") {
-            defaultObject[key] = errorMessage;
-          } else if (fieldTypeName === "ZodBoolean") {
-            defaultObject[key] = false;
-          } else if (fieldTypeName === "ZodNumber") {
-            defaultObject[key] = 0;
-          } else if (fieldTypeName === "ZodObject") {
-            defaultObject[key] = createDefaultResponse(fieldSchema);
-          } else {
-            // For arrays, enums, optionals, etc., null might be a safe default
-            defaultObject[key] = null;
-          }
-        }
-        return outputSchema.parse(defaultObject);
-      } else if (outputSchema._def?.typeName === "ZodString") {
-        // @ts-ignore
-        return outputSchema.parse(errorMessage);
-      }
-    } catch (e) {
-      // console.warn("NoOp Plugin: Failed to create a typed default response for schema. Falling back.", e);
-    }
+
+  if (!outputSchema) {
+    // If no schema, return a generic error object with a 'response' field.
+    return { response: `${errorMessage} (No output schema provided for NoOp plugin)` };
   }
-  // Fallback for unknown or unhandled schema types, or if schema is undefined
-  return { message: errorMessage, error: true };
+
+  try {
+    // @ts-ignore - Using _def and shape is an internal detail of Zod and can be brittle.
+    const typeName = outputSchema._def?.typeName;
+
+    if (typeName === "ZodObject") {
+      const shape = (outputSchema as ZodObject<any>).shape;
+      const defaultObject: Record<string, any> = {};
+      for (const key in shape) {
+        // @ts-ignore
+        const fieldSchema = shape[key];
+        // @ts-ignore
+        const fieldSchemaTypeName = fieldSchema._def?.typeName;
+
+        if (fieldSchemaTypeName === "ZodString") {
+          defaultObject[key] = `${errorMessage} (field: ${key})`;
+        } else if (fieldSchemaTypeName === "ZodBoolean") {
+          defaultObject[key] = false;
+        } else if (fieldSchemaTypeName === "ZodNumber") {
+          defaultObject[key] = 0;
+        } else if (fieldSchemaTypeName === "ZodObject") {
+          defaultObject[key] = createDefaultResponse(fieldSchema); // Recursive call
+        } else if (fieldSchemaTypeName === "ZodOptional" || fieldSchemaTypeName === "ZodNullable") {
+          defaultObject[key] = null; // Optional/nullable fields can be null
+        } else {
+          // For other required complex types (arrays, enums, etc.), attempt a descriptive string.
+          // This might cause parsing to fail if the schema expects a non-string type here.
+          defaultObject[key] = `NoOp_Unsupported_type_${fieldSchemaTypeName}_for_field_${key}`;
+        }
+      }
+      return outputSchema.parse(defaultObject);
+    } else if (typeName === "ZodString") {
+      return outputSchema.parse(errorMessage);
+    } else {
+      // For other top-level schema types (not Object or String),
+      // this return value is unlikely to be parsed correctly by the original schema.
+      // The catch block below should handle parsing failures.
+      // To satisfy some simple cases, we return a string, but it's not robust.
+      const parsedValue = `${errorMessage} (Unsupported top-level schema: ${typeName})`;
+      // Attempt to parse if the schema expects a string, otherwise this will be caught.
+      if (typeof outputSchema.parse(parsedValue) === 'string') {
+        return parsedValue;
+      }
+      // If not a string schema, force an error to go to the catch block for consistent error shaping.
+      throw new Error(`Cannot provide default for non-string, non-object top-level schema ${typeName}`);
+    }
+  } catch (e) {
+    const errorDetails = e instanceof Error ? e.message : String(e);
+    console.warn(`NoOp Plugin: Error during default response creation. Details: ${errorDetails}. Schema description: ${outputSchema.description || 'N/A'}. Falling back to basic error response.`);
+    // Fallback: ALWAYS ensure a 'response' field for compatibility with ChatInterface expecting object with 'response'
+    return { response: `${errorMessage} (Error creating NoOp default: ${errorDetails})` };
+  }
 }
 
 export function createNoopPlugin() {
@@ -91,3 +112,4 @@ export function createNoopPlugin() {
     };
   });
 }
+
