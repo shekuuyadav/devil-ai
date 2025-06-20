@@ -3,7 +3,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { User, Bot } from 'lucide-react';
+import { User } from 'lucide-react';
+import AnimatedDevilIcon from './AnimatedDevilIcon'; // Import the new icon
 
 interface ChatBubbleProps {
   message: {
@@ -36,7 +37,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
       )}
     >
       {!isUser && (
-        <Bot className="h-8 w-8 text-primary rounded-full p-1 self-start flex-shrink-0" />
+        <AnimatedDevilIcon className="h-8 w-8 text-primary rounded-full p-1 self-start flex-shrink-0" />
       )}
       <div
         className={cn(

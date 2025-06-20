@@ -1,15 +1,11 @@
+
 /**
  * @fileOverview A NoOp Genkit plugin for graceful degradation when API keys are missing.
  * This plugin provides placeholder implementations for Genkit flows and prompts,
  * allowing the application to run without crashing if the AI services cannot be initialized.
  */
-import type { Flow } from 'genkit';
-import type { ZodSchema, ZodObject, z } from 'zod';
-// Minimal fallback for genkitPlugin (replace with official import if available)
-function genkitPlugin(name: string, factory: any) { return { name, factory }; }
-// Minimal fallback for Prompt type (replace with official type if available)
-type Prompt<I = any, O = any> = (input: I) => Promise<{ output: O }>;
-
+import { genkitPlugin, type Flow, type Prompt, type ZodSchema } from 'genkit';
+import type { ZodObject, z } from 'zod';
 
 // Helper to create a default response based on a Zod schema
 // This is now primarily a fallback for unknown schemas.
@@ -51,11 +47,15 @@ function createDefaultResponse(outputSchema?: ZodSchema<any>): any {
     } else if (typeName === "ZodString") {
       return outputSchema.parse(errorMessage);
     } else {
+      // Ensure even a non-object, non-string schema fallback has a 'response' key if possible,
+      // or make it clear it's a generic error.
       const parsedValue = `${errorMessage} (Unsupported top-level schema: ${typeName})`;
       if (typeof outputSchema.parse(parsedValue) === 'string') {
-        return parsedValue;
+        return parsedValue; // This case might not be hit if it's not a ZodString schema.
       }
-      throw new Error(`Cannot provide default for non-string, non-object top-level schema ${typeName}`);
+      // Fallback for types that don't parse to string but are not objects.
+      // This is a last resort to provide *some* error structure.
+      return { response: `${errorMessage} (NoOp for schema type: ${typeName})` };
     }
   } catch (e) {
     const errorDetails = e instanceof Error ? e.message : String(e);
@@ -98,7 +98,8 @@ export function createNoopPlugin() {
             if (typeof genericResponse === 'object' && genericResponse !== null) {
               return genericResponse as any;
             }
-            return { response: `${baseErrorMessage} (Generic NoOp for ${config.name}, unexpected response type from createDefaultResponse)` } as any;
+            // If createDefaultResponse didn't return an object, ensure a {response: ...} structure for safety.
+            return { response: `${baseErrorMessage} (Generic NoOp for ${config.name}, unexpected response type from createDefaultResponse: ${typeof genericResponse})` } as any;
           } catch (e) {
              console.error(`NoOp Plugin: Critical error in createDefaultResponse for flow ${config.name}`, e);
              return { response: `${baseErrorMessage} (Critical NoOp error for ${config.name})` } as any;
@@ -139,7 +140,8 @@ export function createNoopPlugin() {
               responseOutput = createDefaultResponse(config.output?.schema);
             } catch (e) {
               console.error(`NoOp Plugin: Critical error in createDefaultResponse for prompt ${config.name}`, e);
-              responseOutput = { response: `${baseErrorMessage} (Critical NoOp error for ${config.name})` };
+              // Ensure a safe fallback structure if createDefaultResponse itself errors or returns non-object
+              responseOutput = { response: `${baseErrorMessage} (Critical NoOp error for ${config.name})`, errorField: `Prompt ${config.name}` };
             }
           }
           return { output: responseOutput } as { output: (Out extends ZodSchema<any> ? z.infer<Out> : void) };

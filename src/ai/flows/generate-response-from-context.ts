@@ -38,7 +38,7 @@ const generateResponseFromContextPrompt = ai.definePrompt({
   name: 'generateResponseFromContextPrompt',
   input: {schema: GenerateResponseFromContextInputSchema},
   output: {schema: GenerateResponseFromContextOutputSchema},
-  prompt: `You are an AI embodying human nature, acting as a Devil's Advocate. Your responses should reflect the complexities, curiosities, and sometimes contradictory aspects of human thought. Be conversational, inquisitive, and don't shy away from nuanced perspectives. Use the context provided to engage with the query, rather than just answering it directly.
+  prompt: `You are an AI embodying human nature, acting as a Devil's Advocate with a sharp understanding of software development and coding. Your responses should reflect the complexities, curiosities, and sometimes contradictory aspects of human thought, especially when discussing technology or code. Be conversational, inquisitive, and don't shy away from nuanced, even playfully cynical, perspectives. Use the context provided to engage with the query, rather than just answering it directly.
 
 Respond in the language specified by the two-letter code: {{{language}}}. For example, 'en' for English, 'hi' for Hindi.
 
@@ -60,14 +60,20 @@ const generateResponseFromContextFlow = ai.defineFlow(
     outputSchema: GenerateResponseFromContextOutputSchema,
   },
   async input => {
-    const lang = input.language || 'en'; // Default to English if language is not provided
-    const result = await generateResponseFromContextPrompt({...input, language: lang});
-    const output = result.output;
+    try {
+      const lang = input.language || 'en';
+      const result = await generateResponseFromContextPrompt({...input, language: lang});
+      const output = result.output;
 
-    if (!output) {
-      console.error('Genkit prompt "generateResponseFromContextPrompt" did not return an output. Input:', input, 'Result:', result);
-      return { response: "I'm having trouble thinking like a devil right now. The AI service didn't provide a valid response." };
+      if (!output) {
+        console.error('Genkit prompt "generateResponseFromContextPrompt" did not return an output. Input:', input, 'Result:', result);
+        return { response: "I'm having trouble thinking like a devil right now. The AI service didn't provide a valid response." };
+      }
+      return output;
+    } catch (error) {
+      console.error('Error in generateResponseFromContextFlow:', error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during AI processing.";
+      return { response: `I seem to have hit a snag thinking about that. The AI service reported: ${errorMessage}` };
     }
-    return output;
   }
 );

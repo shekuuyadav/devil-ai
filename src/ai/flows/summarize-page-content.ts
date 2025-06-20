@@ -48,13 +48,19 @@ const summarizePageContentFlow = ai.defineFlow(
     outputSchema: SummarizePageContentOutputSchema,
   },
   async input => {
-    const result = await summarizePageContentPrompt(input);
-    const output = result.output;
+    try {
+      const result = await summarizePageContentPrompt(input);
+      const output = result.output;
 
-    if (!output) {
-      console.error('Genkit prompt "summarizePageContentPrompt" did not return an output. Input:', input, 'Result:', result);
-      return { summary: "I couldn't summarize the page content. The AI service didn't provide a valid response." };
+      if (!output) {
+        console.error('Genkit prompt "summarizePageContentPrompt" did not return an output. Input:', input, 'Result:', result);
+        return { summary: "I couldn't summarize the page content. The AI service didn't provide a valid response." };
+      }
+      return output;
+    } catch (error) {
+      console.error('Error in summarizePageContentFlow:', error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during page summarization.";
+      return { summary: `Failed to summarize the page. The AI service reported: ${errorMessage}` };
     }
-    return output;
   }
 );

@@ -2,20 +2,23 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ChatBubble from './ChatBubble';
 import CommandModal, { type CustomCommandType } from './CommandModal';
-import { Mic, Send, Loader2, Link as LinkIcon, Settings, Languages, Upload, X, BotIcon, Waves } from 'lucide-react';
+import AnimatedDevilIcon from './AnimatedDevilIcon';
+import { Mic, Send, Loader2, Link as LinkIcon, Settings, Languages, Upload, X, Waves, RefreshCw } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from "@/hooks/use-toast";
 import { interpretCommand } from '@/ai/flows/interpret-command';
 import { generateResponseFromContext } from '@/ai/flows/generate-response-from-context';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
+
 
 interface Message {
   id: string;
@@ -51,43 +54,37 @@ const ChatInterface: React.FC = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-        setCurrentUrl(window.location.href);
-        const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (SpeechRecognitionAPI) {
-          setIsSpeechRecognitionSupported(true);
-        } else {
-          setIsSpeechRecognitionSupported(false);
-          toast({
-            title: "Speech Input Unavailable",
-            description: "Voice input is not supported or enabled in your browser.",
-            variant: "default",
-          });
-        }
-
-        const storedLanguage = localStorage.getItem('selectedLanguage');
-        if (storedLanguage && languageOptions.some(opt => opt.value === storedLanguage)) {
-          setSelectedLanguage(storedLanguage);
-        } else {
-          setSelectedLanguage('en');
-          localStorage.setItem('selectedLanguage', 'en'); 
-        }
-
-        const storedCommands = localStorage.getItem('customCommands');
-        if (storedCommands) {
-          try {
-            const parsedCommands = JSON.parse(storedCommands);
-            if (Array.isArray(parsedCommands)) {
-                setCustomCommands(parsedCommands);
-            }
-          } catch (e) {
-            console.error("Failed to parse custom commands from localStorage", e);
-            localStorage.removeItem('customCommands');
-          }
-        }
-        setIsClientReady(true);
+    setIsClientReady(true);
+    setCurrentUrl(window.location.href);
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognitionAPI) {
+      setIsSpeechRecognitionSupported(true);
+      recognitionRef.current = new SpeechRecognitionAPI();
+    } else {
+      setIsSpeechRecognitionSupported(false);
+      console.warn("Speech Recognition API is not supported in this browser.");
     }
-  }, [toast]);
+
+    const storedLanguage = localStorage.getItem('selectedLanguage');
+    if (storedLanguage && languageOptions.some(opt => opt.value === storedLanguage)) {
+      setSelectedLanguage(storedLanguage);
+    } else {
+      setSelectedLanguage('en');
+      localStorage.setItem('selectedLanguage', 'en');
+    }
+     const storedCommands = localStorage.getItem('customCommands');
+    if (storedCommands) {
+      try {
+        const parsedCommands = JSON.parse(storedCommands);
+        if (Array.isArray(parsedCommands)) {
+            setCustomCommands(parsedCommands);
+        }
+      } catch (e) {
+        console.error("Failed to parse custom commands from localStorage", e);
+        localStorage.removeItem('customCommands');
+      }
+    }
+  }, []);
 
   const speak = useCallback((text: string) => {
     if (!isClientReady || !window.speechSynthesis || !text) return;
@@ -104,6 +101,7 @@ const ChatInterface: React.FC = () => {
            return;
         }
         if (allVoices.length === 0) {
+            console.warn("No speech synthesis voices available. Attempting to speak with default system voice.");
             window.speechSynthesis.speak(utterance);
             return;
         }
@@ -126,6 +124,8 @@ const ChatInterface: React.FC = () => {
 
         if (chosenVoice) {
           utterance.voice = chosenVoice;
+        } else {
+          console.warn(`No specific voice found for language ${selectedLanguage}. Using browser default.`);
         }
         window.speechSynthesis.speak(utterance);
       };
@@ -140,7 +140,7 @@ const ChatInterface: React.FC = () => {
       console.error("Speech synthesis error:", error);
       toast({ title: "Speech Error", description: "Could not play audio response.", variant: "destructive" });
     }
-  }, [toast, selectedLanguage, isClientReady]);
+  }, [selectedLanguage, isClientReady, toast]);
 
   const addMessage = useCallback((text: string, sender: 'user' | 'ai', shouldSpeak: boolean = true) => {
     const newMessage = { id: Date.now().toString(), text, sender, timestamp: new Date() };
@@ -217,64 +217,83 @@ const ChatInterface: React.FC = () => {
     setUploadedMediaType(null);
   };
 
-  const handleSend = () => {
-    if ((inputValue.trim() || uploadedMediaUri) && isClientReady && !isLoading) {
-      if (uploadedMediaUri && !inputValue.trim()) {
+  const handleSend = (textToSend?: string) => {
+    const currentText = typeof textToSend === 'string' ? textToSend : inputValue;
+    if ((currentText.trim() || uploadedMediaUri) && isClientReady && !isLoading) {
+      if (uploadedMediaUri && !currentText.trim()) {
         toast({ title: "Query Required", description: "Please type a question or comment about the uploaded media.", variant: "default" });
         return;
       }
-      addMessage(inputValue || (uploadedMediaUri ? "Regarding the uploaded media:" : " "), 'user');
-      processAIInteraction(inputValue, uploadedMediaUri);
+      addMessage(currentText || (uploadedMediaUri ? "Regarding the uploaded media:" : " "), 'user');
+      processAIInteraction(currentText, uploadedMediaUri);
       setInputValue('');
     }
   };
 
-  const toggleRecording = () => {
-    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!isClientReady || !isSpeechRecognitionSupported || !SpeechRecognitionAPI || isLoading) {
+
+  const handleMicClick = () => {
+    if (!isClientReady || !isSpeechRecognitionSupported || !recognitionRef.current) {
+      toast({ title: "Voice Input Not Supported", description: "Your browser does not support speech recognition or it's not initialized.", variant: "destructive" });
       return;
     }
 
+    const rec = recognitionRef.current;
+
     if (isRecording) {
-      recognitionRef.current?.stop();
+      rec.stop();
       setIsRecording(false);
     } else {
-      try {
-        if (!recognitionRef.current) {
-            recognitionRef.current = new SpeechRecognitionAPI();
-        }
-        recognitionRef.current.lang = selectedLanguage;
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.interimResults = false;
+      rec.lang = selectedLanguage;
+      rec.interimResults = true;
+      rec.continuous = false;
 
-        recognitionRef.current.onstart = () => setIsRecording(true);
-        recognitionRef.current.onend = () => setIsRecording(false);
-        recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
-          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-            toast({
-              title: "Microphone Access Denied",
-              description: "To use voice input, please allow microphone access in your browser settings.",
-              variant: "destructive"
-            });
+      rec.onstart = () => {
+        setIsRecording(true);
+        setInputValue('');
+      };
+
+      rec.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const transcriptSegment = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcriptSegment;
           } else {
-            console.error("Speech recognition error:", event.error);
-            toast({ title: "Speech Error", description: `Recognition error: ${event.error}`, variant: "destructive" });
+            interimTranscript += transcriptSegment;
           }
-          setIsRecording(false);
-        };
-        recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
-          const transcript = event.results[0][0].transcript;
-          addMessage(transcript, 'user');
-          processAIInteraction(transcript, uploadedMediaUri);
-        };
-        recognitionRef.current.start();
-      } catch (err) {
-         console.error("Error initializing speech recognition: ", err);
-         toast({ title: "Speech Init Error", description: "Could not initialize speech recognition.", variant: "destructive" });
-         setIsRecording(false);
+        }
+        setInputValue(finalTranscript || interimTranscript);
+
+        if (finalTranscript.trim()) {
+          handleSend(finalTranscript.trim());
+        }
+      };
+
+      rec.onerror = (event) => {
+        console.error('Speech recognition error', event.error);
+        let errorMsg = "An unknown speech error occurred.";
+        if (event.error === 'no-speech') errorMsg = "No speech detected. Please try again.";
+        else if (event.error === 'audio-capture') errorMsg = "Audio capture failed. Check microphone.";
+        else if (event.error === 'not-allowed') errorMsg = "Microphone access denied. Enable in browser settings.";
+        toast({ title: "Speech Error", description: errorMsg, variant: "destructive" });
+        setIsRecording(false);
+      };
+
+      rec.onend = () => {
+        setIsRecording(false);
+      };
+
+      try {
+        rec.start();
+      } catch (e) {
+        console.error("Error starting speech recognition:", e);
+        toast({ title: "Speech Error", description: "Could not start voice input.", variant: "destructive" });
+        setIsRecording(false);
       }
     }
   };
+
 
   const handleUploadClick = () => {
     if (!isClientReady || isLoading || isRecording) return;
@@ -290,7 +309,7 @@ const ChatInterface: React.FC = () => {
           description: "Please upload an image or video file.",
           variant: "destructive",
         });
-        if (event.target) event.target.value = ''; 
+        if (event.target) event.target.value = '';
         return;
       }
 
@@ -311,7 +330,39 @@ const ChatInterface: React.FC = () => {
     }
   };
 
+  const handleRefreshChat = useCallback(() => {
+    setMessages([]);
+    setInputValue('');
+    setUploadedMediaUri(null);
+    setUploadedMediaType(null);
+
+    if (recognitionRef.current && isRecording) {
+        recognitionRef.current.stop();
+    }
+
+    if (isClientReady && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+    }
+
+    toast({
+        title: "Chat Cleared",
+        description: "The conversation has been reset.",
+        variant: "default",
+    });
+  }, [isRecording, toast, isClientReady]);
+
+
+  if (!isClientReady) {
+    return (
+      <div className="flex flex-col h-[calc(100vh-150px)] max-h-[800px] border rounded-lg shadow-xl bg-card overflow-hidden items-center justify-center">
+        <Loader2 className="h-12 w-12 text-primary animate-spin mb-4" />
+        <p className="text-lg text-muted-foreground font-headline">Loading Devilry...</p>
+      </div>
+    );
+  }
+
   return (
+    <TooltipProvider>
     <div className="flex flex-col h-[calc(100vh-150px)] max-h-[800px] border rounded-lg shadow-xl bg-card overflow-hidden">
        <input
         type="file"
@@ -319,7 +370,7 @@ const ChatInterface: React.FC = () => {
         onChange={handleFileChange}
         style={{ display: 'none' }}
         accept="image/*,video/*"
-        disabled={!isClientReady || isLoading || isRecording}
+        disabled={isLoading || isRecording}
       />
       <div className="p-4 border-b flex justify-between items-center gap-2 sm:gap-4 flex-wrap">
         <div className="flex items-center space-x-2 sm:space-x-4">
@@ -329,7 +380,7 @@ const ChatInterface: React.FC = () => {
                checked={useUrlContext}
                onCheckedChange={setUseUrlContext}
                aria-label="Use URL Context"
-               disabled={!isClientReady || isLoading || isRecording}
+               disabled={isLoading || isRecording}
              />
              <Label htmlFor="url-context" className="text-xs sm:text-sm flex items-center gap-1">
                <LinkIcon className="h-4 w-4"/> Share URL
@@ -341,9 +392,9 @@ const ChatInterface: React.FC = () => {
             <Select
               value={selectedLanguage}
               onValueChange={setSelectedLanguage}
-              disabled={!isClientReady || isLoading || isRecording}
+              disabled={isLoading || isRecording}
             >
-                <SelectTrigger className="w-[100px] sm:w-[150px] text-xs sm:text-sm h-8 sm:h-9" disabled={!isClientReady || isLoading || isRecording}>
+                <SelectTrigger className="w-[100px] sm:w-[150px] text-xs sm:text-sm h-8 sm:h-9" disabled={isLoading || isRecording}>
                 <SelectValue placeholder="Language" />
                 </SelectTrigger>
                 <SelectContent>
@@ -357,21 +408,31 @@ const ChatInterface: React.FC = () => {
         <div className="flex items-center space-x-2 sm:space-x-4">
             <Button
                 variant="outline"
+                onClick={handleRefreshChat}
+                disabled={isLoading || isRecording}
+                className="h-8 sm:h-9 text-xs sm:text-sm px-3"
+                aria-label="Refresh Chat"
+            >
+                <RefreshCw className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                Refresh
+            </Button>
+            <Button
+                variant="outline"
                 onClick={handleUploadClick}
-                disabled={!isClientReady || isLoading || isRecording}
+                disabled={isLoading || isRecording}
                 className="h-8 sm:h-9 text-xs sm:text-sm px-3"
             >
                 <Upload className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
                 Upload
             </Button>
-            <CommandModal triggerDisabled={!isClientReady || isLoading || isRecording} />
+            <CommandModal triggerDisabled={isLoading || isRecording} />
         </div>
       </div>
 
       <ScrollArea className="flex-grow p-4">
-        {isClientReady && messages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <BotIcon className="h-32 w-32 text-primary opacity-50 mb-6" />
+            <AnimatedDevilIcon className="h-32 w-32 text-primary opacity-50 mb-6" />
             <p className="text-lg text-muted-foreground font-headline">
               What mischief shall we conjure today?
             </p>
@@ -386,21 +447,21 @@ const ChatInterface: React.FC = () => {
         <div ref={messagesEndRef} />
       </ScrollArea>
 
-      {isClientReady && isLoading && !isRecording && (
+      {isLoading && !isRecording && (
         <div className="px-4 py-2 text-sm text-muted-foreground flex items-center">
           <Loader2 className="mr-2 h-4 w-4 animate-spin text-primary" />
           Devil's Advocate is thinking...
         </div>
       )}
-      
-      {isClientReady && isRecording && (
+
+      {isRecording && (
         <div className="px-4 py-2 text-sm text-primary flex items-center justify-center">
            <Waves className="mr-2 h-4 w-4 animate-mic-pulse" />
            Listening...
         </div>
       )}
 
-      {uploadedMediaUri && isClientReady && (
+      {uploadedMediaUri && (
         <div className="p-3 border-t bg-background/50">
           <div className="flex justify-between items-center mb-2">
             <p className="text-sm text-muted-foreground">Attached media:</p>
@@ -410,7 +471,7 @@ const ChatInterface: React.FC = () => {
               onClick={() => { setUploadedMediaUri(null); setUploadedMediaType(null); }}
               className="h-7 w-7 text-muted-foreground hover:text-destructive"
               aria-label="Remove media"
-              disabled={!isClientReady || isLoading || isRecording}
+              disabled={isLoading || isRecording}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -431,32 +492,39 @@ const ChatInterface: React.FC = () => {
             onChange={(e) => setInputValue(e.target.value)}
             placeholder={uploadedMediaUri ? "Ask about the uploaded media..." : "Challenge me or ask anything..."}
             onKeyPress={(e) => e.key === 'Enter' && !isLoading && handleSend()}
-            disabled={!isClientReady || isLoading || isRecording}
+            disabled={isLoading || isRecording}
             className="flex-grow text-base"
           />
+          {isSpeechRecognitionSupported ? (
+             <Button
+              variant="outline"
+              size="icon"
+              onClick={handleMicClick}
+              disabled={isLoading}
+              aria-label={isRecording ? "Stop voice input" : "Start voice input"}
+              className={cn(
+                isRecording && "border-primary text-primary"
+              )}
+            >
+              <Mic className={cn("h-4 w-4", isRecording && "animate-mic-pulse")} />
+            </Button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button variant="outline" size="icon" disabled>
+                    <Mic className="h-4 w-4" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Voice input not supported by your browser.</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Button
-            onClick={toggleRecording}
-            variant="outline"
-            size="sm"
-            disabled={!isClientReady || isLoading || !isSpeechRecognitionSupported || (isRecording && isLoading)} 
-            aria-label={isRecording ? "Stop live call" : "Start live call"}
-            className={cn(
-                "whitespace-nowrap",
-                isRecording && "bg-primary text-primary-foreground animate-mic-pulse hover:bg-primary/90"
-            )}
-          >
-            {isRecording ? (
-              "Stop"
-            ) : (
-              <>
-                <Mic className="h-4 w-4" />
-                Live Call
-              </>
-            )}
-          </Button>
-          <Button
-            onClick={handleSend}
-            disabled={!isClientReady || isLoading || isRecording || (!inputValue.trim() && !uploadedMediaUri) || (uploadedMediaUri && !inputValue.trim())}
+            onClick={() => handleSend()}
+            disabled={isLoading || isRecording || (!inputValue.trim() && !uploadedMediaUri) || (uploadedMediaUri && !inputValue.trim())}
             className="bg-accent text-accent-foreground hover:bg-accent/90"
             aria-label="Send message"
             size="icon"
@@ -466,8 +534,11 @@ const ChatInterface: React.FC = () => {
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 };
 
 export default ChatInterface;
+    
+
     

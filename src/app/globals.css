@@ -94,3 +94,29 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--secondary-foreground));
 }
+
+/* Devil Icon Blinking Animation */
+.devil-icon .eye-open-left,
+.devil-icon .eye-open-right,
+.devil-icon .pupil {
+  opacity: 1; /* Default state: open */
+  animation: devil_blink_open 1s infinite step-end;
+}
+
+.devil-icon .eye-closed-left,
+.devil-icon .eye-closed-right {
+  opacity: 0; /* Default state: hidden */
+  animation: devil_blink_closed 1s infinite step-end;
+}
+
+@keyframes devil_blink_open {
+  0%, 90% { opacity: 1; }      /* Eyes open */
+  90.1%, 95% { opacity: 0; }  /* Eyes hidden (during blink) */
+  95.1%, 100% { opacity: 1; } /* Eyes open again */
+}
+
+@keyframes devil_blink_closed {
+  0%, 90% { opacity: 0; }      /* Closed-eye lines hidden */
+  90.1%, 95% { opacity: 1; }  /* Closed-eye lines visible (during blink) */
+  95.1%, 100% { opacity: 0; } /* Closed-eye lines hidden again */
+}

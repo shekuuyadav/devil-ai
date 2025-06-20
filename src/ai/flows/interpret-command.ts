@@ -1,3 +1,4 @@
+
 // src/ai/flows/interpret-command.ts
 'use server';
 /**
@@ -61,17 +62,27 @@ const interpretCommandFlow = ai.defineFlow(
     outputSchema: InterpretCommandOutputSchema,
   },
   async input => {
-    const result = await prompt(input);
-    const output = result.output;
+    try {
+      const result = await prompt(input);
+      const output = result.output;
 
-    if (!output) {
-      console.error('Genkit prompt "interpretCommandPrompt" did not return an output. Input:', input, 'Result:', result);
+      if (!output) {
+        console.error('Genkit prompt "interpretCommandPrompt" did not return an output. Input:', input, 'Result:', result);
+        return {
+          action: "unknown",
+          parameters: { error: "AI service failed to interpret command. Output was empty." },
+          confidence: 0
+        };
+      }
+      return output;
+    } catch (error) {
+      console.error('Error in interpretCommandFlow:', error);
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during command interpretation.";
       return {
         action: "unknown",
-        parameters: { error: "AI service failed to interpret command. Output was empty." },
+        parameters: { error: `Command interpretation failed: ${errorMessage}` },
         confidence: 0
       };
     }
-    return output;
   }
 );
