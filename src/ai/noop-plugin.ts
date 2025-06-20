@@ -3,15 +3,20 @@
  * This plugin provides placeholder implementations for Genkit flows and prompts,
  * allowing the application to run without crashing if the AI services cannot be initialized.
  */
-import { genkitPlugin, type Flow, type Prompt, type ZodSchema } from 'genkit';
-import type { ZodObject, z } from 'zod';
+import type { Flow } from 'genkit';
+import type { ZodSchema, ZodObject, z } from 'zod';
+// Minimal fallback for genkitPlugin (replace with official import if available)
+function genkitPlugin(name: string, factory: any) { return { name, factory }; }
+// Minimal fallback for Prompt type (replace with official type if available)
+type Prompt<I = any, O = any> = (input: I) => Promise<{ output: O }>;
+
 
 // Helper to create a default response based on a Zod schema
+// This is now primarily a fallback for unknown schemas.
 function createDefaultResponse(outputSchema?: ZodSchema<any>): any {
   const errorMessage = "AI functionality is currently disabled. Please configure the API key in your .env file.";
 
   if (!outputSchema) {
-    // If no schema, return a generic error object with a 'response' field.
     return { response: `${errorMessage} (No output schema provided for NoOp plugin)` };
   }
 
@@ -35,12 +40,10 @@ function createDefaultResponse(outputSchema?: ZodSchema<any>): any {
         } else if (fieldSchemaTypeName === "ZodNumber") {
           defaultObject[key] = 0;
         } else if (fieldSchemaTypeName === "ZodObject") {
-          defaultObject[key] = createDefaultResponse(fieldSchema); // Recursive call
+          defaultObject[key] = createDefaultResponse(fieldSchema);
         } else if (fieldSchemaTypeName === "ZodOptional" || fieldSchemaTypeName === "ZodNullable") {
-          defaultObject[key] = null; // Optional/nullable fields can be null
+          defaultObject[key] = null;
         } else {
-          // For other required complex types (arrays, enums, etc.), attempt a descriptive string.
-          // This might cause parsing to fail if the schema expects a non-string type here.
           defaultObject[key] = `NoOp_Unsupported_type_${fieldSchemaTypeName}_for_field_${key}`;
         }
       }
@@ -48,28 +51,23 @@ function createDefaultResponse(outputSchema?: ZodSchema<any>): any {
     } else if (typeName === "ZodString") {
       return outputSchema.parse(errorMessage);
     } else {
-      // For other top-level schema types (not Object or String),
-      // this return value is unlikely to be parsed correctly by the original schema.
-      // The catch block below should handle parsing failures.
-      // To satisfy some simple cases, we return a string, but it's not robust.
       const parsedValue = `${errorMessage} (Unsupported top-level schema: ${typeName})`;
-      // Attempt to parse if the schema expects a string, otherwise this will be caught.
       if (typeof outputSchema.parse(parsedValue) === 'string') {
         return parsedValue;
       }
-      // If not a string schema, force an error to go to the catch block for consistent error shaping.
       throw new Error(`Cannot provide default for non-string, non-object top-level schema ${typeName}`);
     }
   } catch (e) {
     const errorDetails = e instanceof Error ? e.message : String(e);
-    console.warn(`NoOp Plugin: Error during default response creation. Details: ${errorDetails}. Schema description: ${outputSchema.description || 'N/A'}. Falling back to basic error response.`);
-    // Fallback: ALWAYS ensure a 'response' field for compatibility with ChatInterface expecting object with 'response'
-    return { response: `${errorMessage} (Error creating NoOp default: ${errorDetails})` };
+    console.warn(`NoOp Plugin: Error during default response creation for a generic schema. Details: ${errorDetails}. Schema description: ${outputSchema.description || 'N/A'}. Falling back to basic error response.`);
+    return { response: `${errorMessage} (Error creating NoOp default for generic schema: ${errorDetails})` };
   }
 }
 
 export function createNoopPlugin() {
   return genkitPlugin('noop', async () => {
+    const baseErrorMessage = "AI functionality is currently disabled. Please configure the API key in your .env file.";
+
     return {
       defineFlow<In extends ZodSchema<any> | undefined, Out extends ZodSchema<any> | undefined, Stream extends ZodSchema<any> | undefined>(
         config: { name: string; inputSchema?: In; outputSchema?: Out; streamSchema?: Stream },
@@ -79,7 +77,32 @@ export function createNoopPlugin() {
         
         const flowFn = async (input: any) => {
           console.warn(`Genkit NoOp Plugin: Flow '${config.name}' called (NoOp). Input:`, JSON.stringify(input));
-          return createDefaultResponse(config.outputSchema) as (Out extends ZodSchema<any> ? z.infer<Out> : void);
+
+          if (config.name === 'generateResponseFromContextFlow') {
+            return { response: `${baseErrorMessage} (NoOp for ${config.name})` } as any;
+          }
+          if (config.name === 'interpretCommandFlow') {
+            return {
+              action: "unknown",
+              parameters: { noopMessage: `${baseErrorMessage} (NoOp for ${config.name})` },
+              confidence: 0
+            } as any;
+          }
+           if (config.name === 'summarizePageContentFlow') {
+            return { summary: `${baseErrorMessage} (NoOp for ${config.name})` } as any;
+          }
+          
+          // Fallback for other/unknown flows
+          try {
+            const genericResponse = createDefaultResponse(config.outputSchema);
+            if (typeof genericResponse === 'object' && genericResponse !== null) {
+              return genericResponse as any;
+            }
+            return { response: `${baseErrorMessage} (Generic NoOp for ${config.name}, unexpected response type from createDefaultResponse)` } as any;
+          } catch (e) {
+             console.error(`NoOp Plugin: Critical error in createDefaultResponse for flow ${config.name}`, e);
+             return { response: `${baseErrorMessage} (Critical NoOp error for ${config.name})` } as any;
+          }
         };
         
         Object.defineProperty(flowFn, 'name', { value: `noopFlow__${config.name}`, writable: false });
@@ -98,7 +121,27 @@ export function createNoopPlugin() {
         
         const promptFn = async (input: any) => {
           console.warn(`Genkit NoOp Plugin: Prompt '${config.name}' called (NoOp). Input:`, JSON.stringify(input));
-          const responseOutput = createDefaultResponse(config.output?.schema);
+          let responseOutput;
+
+          if (config.name === 'generateResponseFromContextPrompt') {
+            responseOutput = { response: `${baseErrorMessage} (NoOp for ${config.name})` };
+          } else if (config.name === 'interpretCommandPrompt') {
+            responseOutput = {
+              action: "unknown",
+              parameters: { noopMessage: `${baseErrorMessage} (NoOp for ${config.name})` },
+              confidence: 0
+            };
+          } else if (config.name === 'summarizePageContentPrompt') {
+             responseOutput = { summary: `${baseErrorMessage} (NoOp for ${config.name})` };
+          } else {
+            // Fallback for other/unknown prompts
+            try {
+              responseOutput = createDefaultResponse(config.output?.schema);
+            } catch (e) {
+              console.error(`NoOp Plugin: Critical error in createDefaultResponse for prompt ${config.name}`, e);
+              responseOutput = { response: `${baseErrorMessage} (Critical NoOp error for ${config.name})` };
+            }
+          }
           return { output: responseOutput } as { output: (Out extends ZodSchema<any> ? z.infer<Out> : void) };
         };
 
@@ -112,4 +155,3 @@ export function createNoopPlugin() {
     };
   });
 }
-
